@@ -1,0 +1,16 @@
+﻿@{
+    ViewBag.Title = "Home Page";
+}
+
+<div class="jumbotron">
+    <h1>My Chat App with SignalR2</h1>
+    <p class="lead">This is a demo application which implements a simple chat application using SignalR2 and ASP.Net MVC</p>
+    
+    @if (User.Identity.IsAuthenticated) {
+        <p>@Html.ActionLink("Start Chatting >", "Index", "Chat", null, new { @class = "btn btn-primary btn-lg" })</p>
+    }
+    else {
+        <p>@Html.ActionLink("Register >", "Register", "Account", null, new { @class = "btn btn-primary btn-lg" })</p>
+    }
+    
+</div>

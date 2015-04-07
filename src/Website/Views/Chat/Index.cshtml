@@ -1,0 +1,263 @@
+﻿@{
+    ViewBag.Title = "Chat Page";
+}
+
+<h2>SignalR2 Chat</h2>
+<div class="container">
+    <table id="tabLayout" style="width: 100%">
+        <tr style="height: 100%">
+            <td style="width: 75%; border: solid 1px lightblue; vertical-align: top">
+                <div role="tabpanel">
+
+                    <!-- Nav tabs -->
+                    <ul id="tabList" class="nav nav-tabs" role="tablist">
+                        <li role="presentation" class="active">
+                            <a href="#divChatHistory" aria-controls="divChatHistory" role="tab" data-toggle="tab">Chat Room</a>
+                        </li>
+                    </ul>
+
+                    <!-- Tab Panels -->
+                    <div id="tabContent" class="tab-content">
+                        <div id="divChatHistory" role="tabpanel" class="tab-pane active">
+                            <div style="width: 100%; height: 100%; max-height: 350px; height: 350px; overflow-y: auto; padding: 8px">
+                                <ul id="ulDiscussion" style="list-style-type: none"></ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </td>
+            <td style="width: 20%; vertical-align: top; padding: 0 5px">
+                <div id="divChatParticipants" style="width: 100%; height: 100%; overflow: auto; padding: 8px; border: 1px solid gray">
+                    Names of chat users will come here
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 0">
+                <table style="width: 100%">
+                    <tr>
+                        <td style="padding-right: 10px">
+                            <input type="text" id="txtMessage" class="form-control" style="max-width: 100%; width: 100%;" />
+                        </td>
+                        <td style="width:50px; text-align: right">
+                            <input type="button" class="btn btn-primary" id="btnSendMessage" value="Send" />
+                        </td>
+                    </tr>
+                </table>
+            </td>
+            <td style="width: 20%">&nbsp;</td>
+        </tr>
+    </table>
+
+    <input type="hidden" id="hdnDisplayName" value="@User.Identity.Name" />
+    <input type="hidden" id="hdnUserId" value="" />
+    <input type="hidden" id="hdnActiveTabUrl" value="" />
+</div>
+
+<!-- Creating the Private Message Dialog here -->
+<div id="dialog-form" style="display: none" title="Private Message">
+    <form>
+        <fieldset>
+            <label for="name">Message</label>
+            <input type="text" name="name" id="name" class="text ui-widget-content ui-corner-all">
+
+            <!-- Allow form submission with keyboard without duplicating the dialog button -->
+            <input type="submit" tabindex="-1" style="position:absolute; top:-1000px">
+        </fieldset>
+    </form>
+</div>
+
+@Scripts.Render("~/Scripts/jquery-1.10.2.min.js")
+@Scripts.Render("~/Scripts/jquery.signalR-2.1.2.min.js")
+@Scripts.Render("~/Scripts/jquery-ui.min.js")
+@Scripts.Render("~/Scripts/jquery.dialogextend.min.js")
+@Scripts.Render("~/signalr/hubs")
+
+<script type="text/javascript">
+    // Defining the chat object globally
+    var CHAT;
+
+    $(document).ready(function () {
+        // Declare proxy to reference the hub
+        CHAT = $.connection.chatHub;
+
+        // Creating a function that the hub uses to broadcast messages
+        CHAT.client.broadcastMessage = function (name, message) {
+            var encName = $("<div />").text(name).html();
+            var encMessage = $('<div />').text(message).html();
+
+            $("#ulDiscussion").append("<li><strong>" + encName + "</strong>:&nbsp;&nbsp;" + encMessage + "</li>");
+        };
+
+        // Handling method when a connection is established
+        CHAT.client.onConnected = function (id, username, connectedUsers) {
+            $("#hdnDisplayName").val(username);
+            $("#hdnUserId").val(id);
+
+            // Clearing out the chat participants list
+            $("#divChatParticipants").html("");
+            for (var i = 0; i < connectedUsers.length; i++) {
+                addChatParticipant(connectedUsers[i].Id, connectedUsers[i].Username);
+            }
+        };
+
+        // Handling the disconnected operation
+        CHAT.client.onUserDisconnected = function (id, username) {
+            var cpId = "#cp" + id;
+            $(cpId).remove();
+
+            $("#ulDiscussion").append("<li><i>" + username + " disconnected from the chatroom.</i></li>");
+        }
+
+        // Handling method when a new participant is added
+        CHAT.client.onNewUserConnected = function (id, username) {
+            var userExists = false;
+            var cpButtons = $(".chat-participant-button");
+
+            for (var i = 0; i < cpButtons.length; i++) {
+                if (cpButtons[i].id == id) {
+                    userExists = true;
+                    break;
+                }
+            }
+
+            if (!userExists) {
+                addChatParticipant(id, username);
+                $("#ulDiscussion").append("<li><i>" + username + " just joined the chatroom.</i></li>");
+            }
+        };
+
+        // Handling incoming private messages
+        CHAT.client.sendPrivateMessage = function (fromId, fromUsername, message) {
+            // Adding tab if it doesn't exist
+            if (!checkIfPMTabExists(fromId)) {
+                addTab(fromId, fromUsername);
+            }
+
+            // Adding the message
+            var encName = $("<div />").text(fromUsername).html();
+            var encMessage = $('<div />').text(message).html();
+
+            $("#ulid" + fromId).append("<li><strong>" + encName + "</strong>:&nbsp;&nbsp;" + encMessage + "</li>");
+        };
+
+        // Starting the connection
+        $.connection.hub.start().done(function () {
+            // Sending the connection signal
+            CHAT.server.connect($("#hdnDisplayName").val());
+
+            $("#btnSendMessage").click(sendMessage);
+        });
+
+        $("#txtMessage").focus();
+
+        // Handling the ENTER key on the textbox
+        $("#txtMessage").keypress(function (e) {
+            if (e.which == 13) {
+                sendMessage();
+            }
+        });
+    });
+
+    function addChatParticipant(id, username) {
+        $("#divChatParticipants").append("<a class=\"chat-participant-button btn btn-default btn-sm btn-block\" id=\"cp" + id + "\" href=\"javascript:\">" + username + "</a>");
+        var userId = $("#hdnUserId").val();
+        if (userId != id) {
+            $("#cp" + id).click(function () {
+                startPM(id, username);
+            });
+        } else {
+            $("#cp" + id).css("font-weight", "bold");
+            $("#cp" + id).click(function () {
+                alert("You cannot send private messages to yourself!");
+            });
+        }
+    }
+
+    function sendMessage() {
+        var message = $("#txtMessage").val();
+
+        if (message != undefined && message != "") {
+
+            // Checking if this is a private message or a broadcast message
+            var activeTabUrl = $("#hdnActiveTabUrl").val();
+            if (activeTabUrl != "") {
+                var idSplits = activeTabUrl.split("#");
+                if (idSplits.length == 2) {
+                    var idToSend = idSplits[1];
+
+                    if (idToSend == "divChatHistory") {
+                        // Call the send method on the hub in broadcast
+                        CHAT.server.sendToAll($("#hdnDisplayName").val(), message);
+                    } else {
+                        // Found ID to send to. Send private message.
+                        var id = idToSend.split("pmid")[1];
+                        CHAT.server.sendPrivateMessage(id, message);
+                    }
+                }
+            } else {
+                // Call the send method on the hub in broadcast
+                CHAT.server.sendToAll($("#hdnDisplayName").val(), message);
+            }
+
+            // Clear the text box and reset focus
+            $("#txtMessage").val("").focus();
+        }
+    }
+
+    function addTab(userId, username) {
+        // Adding a tab
+        var divId = "pmid" + userId;
+        var tabId = "tabid" + userId;
+        var tabTitle = "PM: " + username;
+        var ulId = "ulid" + userId;
+
+        var tab = "<li id=\"" + tabId +"\" role=\"presentation\"><a href=\"#" + divId + "\" aria-controls=\"" + divId + "\" " +
+            "role=\"tab\" data-toggle=\"tab\">" +
+            "<button onclick=\"return removeTab('" + userId + "')\" class=\"close closeTab\" type=\"button\">x</button>" + tabTitle + "</a>" +
+            "</li>";
+
+        var tabPanel = "<div id=\"" + divId + "\" role=\"tabpanel\" class=\"tab-pane \">" +
+            "<div style=\"width: 100%; height: 100%; max-height: 350px; height: 350px; overflow-y: auto; padding: 8px\">" +
+            "<ul id=\"" + ulId + "\" style=\"list-style-type: none\"></ul></div></div>";
+
+
+        $("#tabList").append(tab);
+        $("#tabContent").append(tabPanel);
+
+        // Adding event handler on the tab
+        $('a[data-toggle="tab"]').on('shown.bs.tab', function(e) {
+            $("#hdnActiveTabUrl").val(e.target);
+        });
+    }
+
+    function removeTab(userId) {
+        $("#tabid" + userId).remove();
+        $("#pmid" + userId).remove();
+
+        // Selecting the first tab
+        $('#tabList a:first').tab('show');
+    }
+
+    function checkIfPMTabExists(userId) {
+        if ($("#pmid" + userId).length > 0) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function startPM(id, username) {
+        // Adding tab if it does not exist
+        if (!checkIfPMTabExists(id)) {
+            addTab(id, username);
+        }
+
+        // Switching to the tab
+        $("#tabList a[href=\"#pmid" + id + "\"]").tab('show');
+
+        // Focusing the textbox
+        $("#txtMessage").focus();
+    }
+
+</script>
